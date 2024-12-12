@@ -1,0 +1,534 @@
+// NOTES:
+// TESTED WITH THREE STEPPERS, SOME ISSUES BUT TECHNICALLY "WORKING"
+// CNC BOARD CAN SUPPORT UP TO 4 STEPPERS
+// STEPPER DRIVER (TMC 2208) VCC ADJ = 1.223V (OR CLOSEST)\\ THIS HAS BEEN STEPPED DOWN TO 1V FOR HEAT MGMT \\
+// STEPPER SPEC CYCLE PER REV APPROX 1600
+// ENCODER SPEC CYCLE PER REV = 20
+
+//-------------------------------------------------------------------//
+#include <AccelStepper.h>
+#include <Encoder.h>
+
+#define SENSORPINX 14
+#define SENSORPINY 15
+#define SENSORPINZ 16
+
+//-------------DEF---------------------------------------------------//
+
+// Define pins for the rotary encoder
+const int encoderPinA = 18;
+const int encoderPinB = 19;
+const int encoderPinC = 22;
+const int encoderPinD = 23;
+const int encoderPinE = 20;
+const int encoderPinF = 21;
+
+
+// Define pins for the stepper motors
+const int enPin = 8;
+ 
+const int stepPinX = 2; 
+const int dirPinX = 5;
+const int stepPinY = 3; 
+const int dirPinY = 6;  
+const int stepPinZ = 4; 
+const int dirPinZ = 7; 
+int Speed = 2000000000;
+int Accel = 200000000;
+
+
+//-------------STEPPER-X---------------------------------------------//
+
+  // Encoder(1) is tied to Stepper(X)
+  Encoder encoder1(encoderPinA, encoderPinB);
+
+  // Stepper(X) is tied to Encoder(1)
+  AccelStepper stepperX(AccelStepper::DRIVER, stepPinX, dirPinX);
+
+  long previousEncoderPosition1 = 0;
+
+  // Encoder1 resolution
+  const int encoderCountsPerRevolution1 = 600; // KY-040 encoder says 20, but you can change it to increase distance stepper travels per click
+
+  // StepperX motor steps per revolution
+  const int stepsPerRevolutionX = 2000; // Should be 1600, but can be changed to put in balance with encoder
+
+  // To achieve 1:1 ratio
+  const float stepsPerCountX = (float)stepsPerRevolutionX / encoderCountsPerRevolution1;
+
+
+
+//-------------STEPPER-Y----------------------------------------------//
+
+  // Encoder(2) is tied to Stepper(Y)
+  Encoder encoder2(encoderPinC, encoderPinD);
+
+  // Stepper(Y) is tied to Encoder(2)
+  AccelStepper stepperY(AccelStepper::DRIVER, stepPinY, dirPinY);
+
+  long previousEncoderPosition2 = 0;
+
+  // Encoder1 resolution
+  const int encoderCountsPerRevolution2 = 600; 
+
+  // StepperY motor steps per revolution
+  const int stepsPerRevolutionY = 2000; // Should be 1600, but can be changed to put in balance with encoder
+
+  // To achieve 1:1 ratio
+  const float stepsPerCountY = (float)stepsPerRevolutionY / encoderCountsPerRevolution2;
+
+
+//-------------STEPPER-Z---------------------------------------------//
+
+  // Encoder(2) is tied to Stepper(X)
+  Encoder encoder3(encoderPinE, encoderPinF);
+
+  // Stepper(X) is tied to Encoder(2)
+  AccelStepper stepperZ(AccelStepper::DRIVER, stepPinZ, dirPinZ);
+
+  long previousEncoderPosition3 = 0;
+
+  // Encoder1 resolution
+  const int encoderCountsPerRevolution3 = 600; // KY-040 encoder says 20, but you can change it to increase distance stepper travels per click
+
+  // StepperZ motor steps per revolution
+  const int stepsPerRevolutionZ = 2000; // Should be 1600, but can be changed to put in balance with encoder
+
+  // To achieve 1:1 ratio
+  const float stepsPerCountZ = (float)stepsPerRevolutionZ / encoderCountsPerRevolution3;
+
+
+
+//-------------VARIABLES--------------------------------------------//
+
+    // Home positions
+    long homePositionY = 0;
+    long homePositionX = 0;
+    long homePositionZ = 0;
+
+    // Rotation parameters for Huzzah
+    const int CW = 5; // Number of full clockwise rotations
+    const int CC = 3; // Number of full counterclockwise rotations
+
+    // Timing variables
+    unsigned long lastMovementTimeX = 0;
+    unsigned long lastMovementTimeY = 0;
+    unsigned long lastMovementTimeZ = 0;
+    unsigned long currentTime;
+    const unsigned long WinThresh = 1500; // seconds of inactivity before Huzzah
+
+
+    // Stepper Travel Variables
+    long initial_homingX = 0;  // Used to Home Stepper at startup
+    long initial_homingY = 0;  // Used to Home Stepper at startup
+    long initial_homingZ = 0;  // Used to Home Stepper at startup
+
+    long Scrombled = 0;
+
+    long WinStateX = 0;
+    long WinStateY = 0;
+    long WinStateZ = 0;
+    long SuperWinState = 0;
+
+//-------------------------------------------------------------------//
+
+
+
+void setup() {
+
+  // Initialize the encoder position
+  previousEncoderPosition1 = encoder1.read();
+  previousEncoderPosition2 = encoder2.read();
+  previousEncoderPosition3 = encoder3.read();
+  Serial.begin(9600);
+    
+  pinMode(enPin, OUTPUT);
+  pinMode(stepPinX, OUTPUT);
+  pinMode(dirPinX, OUTPUT);
+  pinMode(stepPinY, OUTPUT);
+  pinMode(dirPinY, OUTPUT);
+  pinMode(dirPinZ, OUTPUT);
+  pinMode(stepPinZ, OUTPUT);
+
+  pinMode(SENSORPINX, INPUT);
+  pinMode(SENSORPINY, INPUT);
+  pinMode(SENSORPINZ, INPUT);
+
+
+  digitalWrite(enPin, LOW);
+  digitalWrite(SENSORPINX, HIGH);
+  digitalWrite(SENSORPINY, HIGH); 
+  digitalWrite(SENSORPINZ, HIGH);
+  //-----------------------------//                                                                                                    
+
+  Serial.println(F("Initialized"));
+
+  delay(10);  // Wait for Driver wake up
+
+  //  Set Max Speed and Acceleration of each Steppers at startup for homing
+  stepperX.setMaxSpeed(300.0);      // Set Max Speed of Stepper (Slower to get better accuracy)
+  stepperX.setAcceleration(300.0);  // Set Acceleration of Stepper
+  stepperY.setMaxSpeed(300.0);      // Set Max Speed of Stepper (Slower to get better accuracy)
+  stepperY.setAcceleration(300.0);  // Set Acceleration of Stepper 
+  stepperZ.setMaxSpeed(300.0);      // Set Max Speed of Stepper (Slower to get better accuracy)
+  stepperZ.setAcceleration(300.0);  // Set Acceleration of Stepper 
+
+
+  // Start Homing procedure of Stepper Motor at startup
+
+    Serial.println("Steppers are Homing . . . . . . . . . . . ");
+    Serial.print("X . .");
+
+    while (digitalRead(SENSORPINX) == HIGH) {  // Make the Stepper move CCW until the switch is activated   
+      stepperX.moveTo(initial_homingX);  // Set the position to move to
+        initial_homingX--;  // Decrease by 1 for next move if needed
+        stepperX.run();  // Start moving the stepper
+      delay(5);
+    }
+
+    Serial.println("Homed . .");
+    Serial.print("Y . .");
+
+      while (digitalRead(SENSORPINY) == HIGH) {  // Make the Stepper move CCW until the switch is activated   
+      stepperY.moveTo(initial_homingY);  // Set the position to move to
+        initial_homingY--;  // Decrease by 1 for next move if needed
+        stepperY.run();  // Start moving the stepper
+      delay(5);
+    }
+    Serial.println("Homed . .");
+    Serial.print("Z . .");
+
+      while (digitalRead(SENSORPINZ) == HIGH) {  // Make the Stepper move CCW until the switch is activated   
+      stepperZ.moveTo(initial_homingZ);  // Set the position to move to
+        initial_homingZ--;  // Decrease by 1 for next move if needed
+        stepperZ.run();  // Start moving the stepper
+      delay(5);
+    }
+    Serial.println("Homed");
+
+    initial_homingX=10;
+    initial_homingY=10;
+    initial_homingZ=10;
+
+
+    while (digitalRead(SENSORPINY) == LOW) { // Make the Stepper move CW until the switch is deactivated
+      stepperY.moveTo(initial_homingY);  
+      stepperY.run();
+      initial_homingY++;
+      delay(5);
+    }
+    while (digitalRead(SENSORPINX) == LOW) { // Make the Stepper move CW until the switch is deactivated
+      stepperX.moveTo(initial_homingX);  
+      stepperX.run();
+      initial_homingX++;
+      delay(5);
+    }
+    while (digitalRead(SENSORPINZ) == LOW) { // Make the Stepper move CW until the switch is deactivated
+      stepperZ.moveTo(initial_homingZ);  
+      stepperZ.run();
+      initial_homingZ++;
+      delay(5);
+    }
+
+    stepperX.setCurrentPosition(0);
+    stepperY.setCurrentPosition(0);
+    stepperZ.setCurrentPosition(0);
+    Serial.println("Homing Completed");
+    Serial.println("");
+    delay (1000);
+
+  pinMode(encoderPinA, INPUT_PULLUP);
+  pinMode(encoderPinB, INPUT_PULLUP);
+  pinMode(encoderPinC, INPUT_PULLUP);
+  pinMode(encoderPinD, INPUT_PULLUP);
+  pinMode(encoderPinE, INPUT_PULLUP);
+  pinMode(encoderPinF, INPUT_PULLUP);
+
+    // Set home positions for clarity
+  homePositionX == stepperX.currentPosition();    
+  homePositionY == stepperY.currentPosition();
+  homePositionZ == stepperZ.currentPosition();
+
+    // Max Speed / Veloc for Steppers
+  stepperX.setMaxSpeed(Speed); // Adjust as needed
+  stepperX.setAcceleration(Accel); // Adjust as needed
+  stepperY.setMaxSpeed(Speed); // Adjust as needed
+  stepperY.setAcceleration(Accel); // Adjust as needed
+  stepperZ.setMaxSpeed(Speed); // Adjust as needed
+  stepperZ.setAcceleration(Accel); // Adjust as needed
+
+
+  lastMovementTimeX = millis();
+  lastMovementTimeY = millis();
+  lastMovementTimeZ = millis();
+  Serial.println("Setup Complete: Go to Scramble");
+}
+
+
+//-------------------------------------------------------------------//
+
+void Scramble(int Min, int Max) {
+
+    while (Scrombled == 0) {
+      // Generate a random number of seconds to move
+      int randNum = random(Min, Max);
+      // Calculate the number of milliseconds to move
+      unsigned long moveDuration = 8 * 1000; // Convert seconds to milliseconds
+      unsigned long startTime = millis(); // Get the current time
+      int Speed = 100000;
+      
+      // Set the initial speed for both motors
+      stepperX.setSpeed(Speed); // Set speed for X motor (adjust as necessary)
+      stepperY.setSpeed(-Speed); // Set speed for Y motor (adjust as necessary)
+      stepperZ.setSpeed(Speed); // Set speed for Y motor (adjust as necessary)
+      // Random interval for reversing direction
+      int reverseInterval = random(1, 7); // Random time between 1 and 4 seconds
+      unsigned long reverseStartTime = millis(); // Track reverse time
+      delay(300);
+
+
+        // Start the motors moving continuously
+        while (millis() - startTime < moveDuration) {
+          
+          if (millis() - reverseStartTime >= reverseInterval * 1000) { // Check if it's time to reverse
+            delay(300);
+
+            stepperX.setSpeed(-stepperX.speed()); // Reverse direction for X
+            stepperY.setSpeed(stepperY.speed()); // Reverse direction for Y
+            stepperZ.setSpeed(-stepperZ.speed()); // Reverse direction for Z
+
+            // Reset the reverse timer and get a new interval
+            reverseStartTime = millis();
+            reverseInterval = random(1, 4); // Random time for the next reverse
+          }
+          
+          // Use run() to keep the motors moving
+          stepperX.runSpeed(); // Run at the set speed
+          stepperY.runSpeed(); // Run at the set speed
+          stepperZ.runSpeed(); // Run at the set speed
+        }
+
+    // Stop the motors after the duration
+    stepperX.stop();
+    delay(25);
+    stepperY.stop();
+    delay(25);
+    stepperZ.stop();
+    delay(25);
+
+
+        if (digitalRead(SENSORPINX) == LOW){
+          Serial.println ("Never tell me the odds . . .");
+          Serial.println ("Re-scramble");
+          delay(25);
+          break;
+        }
+
+        if (digitalRead(SENSORPINY) == LOW){
+          Serial.println ("Never tell me the odds . . .");
+          Serial.println ("Re-scramble");
+          delay(25);
+          break;
+        }
+
+        if (digitalRead(SENSORPINZ) == LOW){
+          Serial.println ("Never tell me the odds . . .");
+          Serial.println ("Re-scramble");
+          delay(25);
+          break;
+        } else {
+          
+          Scrombled = 1; // Set to 1 to exit the loop after one scramble
+          Serial.println("Order up!");
+          lastMovementTimeX = millis();
+          lastMovementTimeY = millis();
+          lastMovementTimeZ = millis();
+          delay(25);
+          break;
+        }
+    }
+}
+
+void Huzzah() {
+  delay (1000);
+  while (SuperWinState == 1) {
+    
+    // Calculate the number of milliseconds to move
+    unsigned long moveDuration = 11.3 * 1000; // Convert seconds to milliseconds
+    unsigned long startTime = millis(); // Get the current time
+    unsigned long reverseStartTime = millis(); // Track reverse time
+    int Speed = 2000;
+    int reverseInterval = random(1, 4); // Random time between 1 and 4 seconds
+
+    // Set the initial speed for both motors
+    stepperX.setSpeed(-Speed);
+    stepperY.setSpeed(Speed);
+    stepperZ.setSpeed(-Speed);
+
+    // Start the motors moving continuously
+    while (millis() - startTime < moveDuration) {
+      // Check if it's time to reverse
+      if (millis() - reverseStartTime >= reverseInterval * 1000) {
+        // Reverse the direction
+        stepperX.setSpeed(stepperX.speed());
+        stepperY.setSpeed(-stepperY.speed());
+        stepperZ.setSpeed(stepperY.speed());
+        // Reset the reverse timer and get a new interval
+        reverseStartTime = millis();
+        reverseInterval = random(1, 4); // Random time for the next reverse
+      }
+
+      // Move the stepper motors
+      stepperX.runSpeed();
+      stepperY.runSpeed();
+      stepperZ.runSpeed();
+    }
+
+    // Stop the motors after the duration
+    stepperX.stop();
+    stepperY.stop();
+    stepperZ.stop();
+
+    Serial.println("Reset, Scramble");
+    SuperWinState = 0;
+    WinStateX = 0;
+    WinStateY = 0;
+    WinStateZ = 0;
+    Serial.println("Conflatulations!!!");
+    Scrombled = 0;
+    lastMovementTimeX = millis();
+    lastMovementTimeY = millis();
+    lastMovementTimeZ = millis();
+    delay(300);
+    break;
+  }
+}
+
+//-------------------------------------------------------------------//
+
+void loop() {
+  // DEF Sensor Pin
+  int sensorStateX = digitalRead(SENSORPINX);
+  int sensorStateY = digitalRead(SENSORPINY);
+  int sensorStateZ = digitalRead(SENSORPINZ);
+
+  // Read current position of encoder
+  long currentEncoderPosition1 = encoder1.read();
+  long currentEncoderPosition2 = encoder2.read();
+  long currentEncoderPosition3 = encoder3.read();
+
+  // Calculate change in encoder position
+  long encoderDelta1 = currentEncoderPosition1 - previousEncoderPosition1;
+  long encoderDelta2 = currentEncoderPosition2 - previousEncoderPosition2;
+  long encoderDelta3 = currentEncoderPosition3 - previousEncoderPosition3;
+  long stepperDelta1 = encoderDelta1 * stepsPerCountX;
+  long stepperDelta2 = encoderDelta2 * stepsPerCountY;
+  long stepperDelta3 = encoderDelta3 * stepsPerCountZ;
+  // Update previous encoder position
+  previousEncoderPosition1 = currentEncoderPosition1;
+  previousEncoderPosition2 = currentEncoderPosition2;
+  previousEncoderPosition3 = currentEncoderPosition3;
+
+  // Max Speed / Veloc for Steppers
+  stepperX.setMaxSpeed(Speed); // Adjust as needed
+  stepperX.setAcceleration(Accel); // Adjust as needed
+  stepperY.setMaxSpeed(Speed); // Adjust as needed
+  stepperY.setAcceleration(Accel); // Adjust as needed  
+  stepperZ.setMaxSpeed(Speed); // Adjust as needed
+  stepperZ.setAcceleration(Accel); // Adjust as needed 
+
+
+    //Has Puzzle Been Scrambled?
+    if (Scrombled == 0){
+      Serial.println("Scramble the eggs");
+      Scramble(5, 10);
+    
+
+    // Is Win?
+     }else  {
+
+                if (((millis() - lastMovementTimeX) >= WinThresh)&&(sensorStateX == LOW)) {
+                  lastMovementTimeX = millis(); // Reset after action
+                  Serial.println("X SOLVED");
+                  WinStateX = 1;
+                }else {
+                  WinStateX = 0;
+                }
+
+
+                if (((millis() - lastMovementTimeY) >= WinThresh)&&(sensorStateY == LOW)) {
+                lastMovementTimeY = millis(); // Reset after action
+                Serial.println("Y SOLVED");
+                WinStateY = 1;
+                }else{
+                  WinStateY = 0;
+                }
+
+
+                if (((millis() - lastMovementTimeZ) >= WinThresh)&&(sensorStateZ == LOW)) {
+                  lastMovementTimeZ = millis(); // Reset after action
+                  Serial.println("Z SOLVED");
+                  WinStateZ = 1;
+                }else{
+                  WinStateZ = 0;
+                }
+
+
+
+              if ((WinStateX == 1) && (WinStateY == 1) && (WinStateZ == 1)){
+                SuperWinState = 1;
+              }
+
+              if (SuperWinState == 1){
+                Serial.println ("WINNER WINNER CHICKEN DINNER!!!");
+                Huzzah();                     
+              }
+            }
+
+            // Move stepper X based on encoder 2 values
+            if (encoderDelta1 != 0) {
+              stepperX.moveTo(stepperX.currentPosition() + stepperDelta1);
+              lastMovementTimeX = millis();
+            }
+
+            // Move stepper Y based on encoder 1 values
+            if (encoderDelta2 != 0) {
+              stepperY.moveTo(stepperY.currentPosition() + stepperDelta2);
+              lastMovementTimeY = millis();
+            }
+
+            
+            // Move stepper Z based on encoder 3 values
+            if (encoderDelta3 != 0) {
+              stepperZ.moveTo(stepperZ.currentPosition() + stepperDelta3);
+              lastMovementTimeZ = millis();
+            }
+
+                // Have Rings Been Moved Out Of Solved Before SuperWinState?
+
+                
+                if ((WinStateX == 1) && (sensorStateX == HIGH)) {
+                  lastMovementTimeX = millis(); // Reset after action
+                  Serial.println("X UNSOLVED");
+                  WinStateX = 0;
+                  }
+
+                if ((WinStateY == 1) && (sensorStateY == HIGH)) {
+                  lastMovementTimeY = millis(); // Reset after action
+                  Serial.println("Y UNSOLVED");
+                  WinStateY = 0;
+                  }
+
+                if ((WinStateZ == 1) && (sensorStateZ == HIGH)) {
+                  lastMovementTimeZ = millis(); // Reset after action
+                  Serial.println("Z UNSOLVED");
+                  WinStateZ = 0;
+                  }   
+  
+
+   // Run motors
+   stepperY.run();
+   stepperX.run();
+   stepperZ.run();
+
+ }
