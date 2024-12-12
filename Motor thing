@@ -249,14 +249,6 @@ void setup() {
   homePositionY == stepperY.currentPosition();
   homePositionZ == stepperZ.currentPosition();
 
-    // Max Speed / Veloc for Steppers
-  stepperX.setMaxSpeed(Speed); // Adjust as needed
-  stepperX.setAcceleration(Accel); // Adjust as needed
-  stepperY.setMaxSpeed(Speed); // Adjust as needed
-  stepperY.setAcceleration(Accel); // Adjust as needed
-  stepperZ.setMaxSpeed(Speed); // Adjust as needed
-  stepperZ.setAcceleration(Accel); // Adjust as needed
-
 
   lastMovementTimeX = millis();
   lastMovementTimeY = millis();
