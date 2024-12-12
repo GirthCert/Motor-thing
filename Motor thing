@@ -48,7 +48,7 @@ int Accel = 200000000;
   long previousEncoderPosition1 = 0;
 
   // Encoder1 resolution
-  const int encoderCountsPerRevolution1 = 600; // KY-040 encoder says 20, but you can change it to increase distance stepper travels per click
+  const int encoderCountsPerRevolution1 = 600;
 
   // StepperX motor steps per revolution
   const int stepsPerRevolutionX = 2000; // Should be 1600, but can be changed to put in balance with encoder
@@ -80,16 +80,16 @@ int Accel = 200000000;
 
 //-------------STEPPER-Z---------------------------------------------//
 
-  // Encoder(2) is tied to Stepper(X)
+  // Encoder(3) is tied to Stepper(Z)
   Encoder encoder3(encoderPinE, encoderPinF);
 
-  // Stepper(X) is tied to Encoder(2)
+  // Stepper(Z) is tied to Encoder(3)
   AccelStepper stepperZ(AccelStepper::DRIVER, stepPinZ, dirPinZ);
 
   long previousEncoderPosition3 = 0;
 
   // Encoder1 resolution
-  const int encoderCountsPerRevolution3 = 600; // KY-040 encoder says 20, but you can change it to increase distance stepper travels per click
+  const int encoderCountsPerRevolution3 = 600; 
 
   // StepperZ motor steps per revolution
   const int stepsPerRevolutionZ = 2000; // Should be 1600, but can be changed to put in balance with encoder
